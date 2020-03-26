@@ -241,10 +241,8 @@ end
 
 local longest_protected_match = hlp.longest_url_path(hlp.get_matches("protected")) or ""
 local longest_skipped_match = hlp.longest_url_path(hlp.get_matches("skipped")) or ""
-local longest_unprotected_match = hlp.longest_url_path(hlp.get_matches("unprotected")) or ""
 
 logger.debug("longest skipped "..longest_skipped_match)
-logger.debug("longest unprotected "..longest_unprotected_match)
 logger.debug("longest protected "..longest_protected_match)
 
 --
@@ -256,8 +254,7 @@ logger.debug("longest protected "..longest_protected_match)
 --
 
 if longest_skipped_match ~= ""
-and string.len(longest_skipped_match) >= string.len(longest_protected_match) 
-and string.len(longest_skipped_match) > string.len(longest_unprotected_match) then
+and string.len(longest_skipped_match) >= string.len(longest_protected_match) then
     logger.debug("Skipping "..ngx.var.uri)
     return hlp.pass()
 end
@@ -305,9 +302,9 @@ function serveYnhpanel()
 end
 
 --
--- 6. Unprotected URLs
+-- 6. Authorized URLs
 --
--- If the URL matches one of the `unprotected_urls` in the configuration file,
+-- If the URL matches one of the permission['url'] in the configuration file,
 -- it means that the URL should not be protected by the SSO *but* headers have
 -- to be sent if the user is already authenticated.
 --
@@ -315,17 +312,6 @@ end
 -- been authenticated on the portal, he can have his authentication headers
 -- passed to the app.
 --
-
-if longest_unprotected_match ~= ""
-and string.len(longest_unprotected_match) > string.len(longest_protected_match) then
-    if hlp.is_logged_in() then
-        serveYnhpanel()
-
-        hlp.set_headers()
-    end
-    logger.debug(ngx.var.uri.." is in unprotected_urls")
-    return hlp.pass()
-end
 
 if hlp.is_logged_in() then
     serveYnhpanel()
@@ -339,8 +325,9 @@ if hlp.is_logged_in() then
     -- and let it be
     hlp.set_headers()
     return hlp.pass()
+elseif hlp.has_access() then
+    return hlp.pass()
 end
-
 
 --
 -- 7. Basic HTTP Authentication

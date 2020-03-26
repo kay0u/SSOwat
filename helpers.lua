@@ -224,6 +224,8 @@ function is_logged_in()
     local user = ngx.var.cookie_SSOwAuthUser
     local authHash = ngx.var.cookie_SSOwAuthHash
 
+    authUser = nil
+
     if expireTime and expireTime ~= ""
     and authHash and authHash ~= ""
     and user and user ~= ""
@@ -265,55 +267,70 @@ end
 -- Check whether a user is allowed to access a URL using the `permissions` directive
 -- of the configuration file
 function has_access(user)
-    user = user or authUser
+    user = user or authUser or "visitors"
 
     logger.debug("User "..user.." try to access "..ngx.var.uri)
     
     -- Get the longest url permission
-    longest_permission_match = longest_url_path(permission_matches()) or ""
-
-    logger.debug("Longest permission match : "..longest_permission_match)
+    permission_match = longest_permission_matches()
 
     -- If no permission matches, it means that there is no permission defined for this url.
-    if longest_permission_match == "" then
+    if permission_match == nil then
         logger.debug("No access rules defined for user "..user..", assuming it cannot access.")
         return false
     end
 
-    -- All user in this permission
-    allowed_users = conf["permissions"][longest_permission_match]
+    logger.warn("Longest permission match : "..permission_match['url'])
 
-    -- The user has permission to access the content if he is in the list of this one
-    if allowed_users then
-        for _, u in pairs(allowed_users) do
-            if u == user then
-                logger.debug("User "..user.." can access "..ngx.var.uri)
-                log_access(user, longest_permission_match)
+    local function has_value (tab, val)
+        for index, value in ipairs(tab) do
+            if value == val then
                 return true
             end
         end
+    
+        return false
     end
 
-    logger.debug("User "..user.." cannot access "..ngx.var.uri)
-    return false
+    if user == "visitors" then
+        if has_value(permission_match['allowed'], user) then
+            logger.debug(ngx.var.uri.." is public")
+            return true
+        end
+        logger.debug(ngx.var.uri.." is private")
+        return false
+    else
+        if has_value(permission_match['corresponding_users'], user) then
+                logger.debug("User "..user.." can access "..ngx.var.uri)
+            return true
+        end
+        logger.debug("User "..user.." cannot access "..ngx.var.uri)
+        return false
+    end
 end
 
-function permission_matches()
+function longest_permission_matches()
     if not conf["permissions"] then
         conf["permissions"] = {}
     end
 
-    local url_matches = {}
+    local permission_match = nil
 
-    for url, permission in pairs(conf["permissions"]) do
-        if string.starts(ngx.var.host..ngx.var.uri..uri_args_string(), url) then
-            logger.debug("Url permission match current uri : "..url)
-
-            table.insert(url_matches, url)
+    for permission_key, permission_value in pairs(conf["permissions"]) do
+        -- if the value of the url is "null", lua see it as a function ?!
+        if permission_value['url'] and type(permission_value['url']) == 'string' then
+            permission_url = permission_value['url']
+            if string.starts(ngx.var.host..ngx.var.uri..uri_args_string(), permission_url) then
+                if not permission_match then
+                    permission_match = permission_value
+                elseif string.len(permission_url) > string.len(permission_match['url']) then
+                    permission_match = permission_value
+                end 
+            end
         end
     end
 
-    return url_matches
+    return permission_match
 end
 
 function get_matches(section)
